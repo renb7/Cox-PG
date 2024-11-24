@@ -1,0 +1,186 @@
+---
+title: "Cox_regression"
+output:
+  html_document:
+    toc: yes
+    toc_float:
+      toc_collapsed: yes
+---
+
+# Setup Environment 
+```{r setup, include=T}
+source('0_functions.R', echo=F) 
+library(survival)
+library(INLAjoint)
+library(INLA)
+library(brms)
+```
+
+## Lung dataset example
+```{r e1, warning=FALSE, eval=T}
+dta = lung[,c("time","status")]
+dta = dta[complete.cases(dta),]
+
+km_fit0 = survfit(Surv(time, status) ~ 1, data = dta)
+if(!file.exists("km_fit.rds")) {
+km_fit = posterior_draw(formula = Surv(time, status) ~ 1,
+                      data = dta,
+                      n_print = 10000,burn_in = 1000,
+                      n_mcmc =101000, verbose = T, 
+                      thin = 100, calibration = T)
+saveRDS(km_fit, file = "km_fit.rds")
+}
+km_fit =readRDS("km_fit.rds")
+```
+
+```{r p1, warning=FALSE, eval=T}
+par(mfrow = c(2, 2),mar = c(3, 3, 4, 1))
+#
+plot(km_fit$rmb_splines$time_grid,km_fit$rmb_splines$Du_all[,1],type="l",lwd=0, main="(a)",ylab="", xlab="",cex.axis=1, cex.main=1.5)
+for(c in 1:ncol(km_fit$rmb_splines$Du_all)){
+  lines(km_fit$rmb_splines$time_grid,km_fit$rmb_splines$Du_all[,c],col=c,lty=c, lwd=2)
+}
+#
+plot(km_fit$rmb_splines$time_grid,km_fit$rmb_splines$u_all[,1],type="l",lwd=0, main="(b)",ylab="", xlab="",cex.axis=1, cex.main=1.5, ylim=max(km_fit$rmb_splines$time_grid)*c(min(km_fit$rmb_splines$u_all),max(km_fit$rmb_splines$u_all)))
+for(c in 1:ncol(km_fit$rmb_splines$Du_all)){
+  lines(km_fit$rmb_splines$time_grid,max(km_fit$rmb_splines$time_grid)*km_fit$rmb_splines$u_all[,c],col=c,lty=c, lwd=2)
+}
+#
+lch = summary.baselineLogCumulativeHazard(km_fit)
+plot(km_fit$rmb_splines$time_grid,lch$spline_summary$base$mean,type="l", main="(c)",ylab="", xlab="",cex.axis=1, cex.main=1.5, lwd=2, col="red",
+     ylim=c(min(lch$spline_summary$base$joint_band$lower_CI),
+            max(lch$spline_summary$base$joint_band$upper_CI))
+     )
+lines(km_fit$rmb_splines$time_grid,lch$spline_summary$base$joint_band$lower_CI,lwd=2,lty=2,col="red")
+lines(km_fit$rmb_splines$time_grid,lch$spline_summary$base$joint_band$upper_CI,lwd=2,lty=2,col="red")
+#
+plot(km_fit0, lty = 1, col = c("blue"), lwd = 3.5, 
+     conf.int = TRUE, conf.int.style = "bands",
+     main="(d)",ylab="", xlab="",cex.axis=1, cex.main=1.5 )
+lines(km_fit$rmb_splines$time_grid,exp(-exp(lch$spline_summary$base$mean)),lwd=2,lty=1,col="red")
+lines(km_fit$rmb_splines$time_grid,exp(-exp(lch$spline_summary$base$joint_band$lower_CI)),lwd=2,lty=2,col="red")
+lines(km_fit$rmb_splines$time_grid,exp(-exp(lch$spline_summary$base$joint_band$upper_CI)),lwd=2,lty=2,col="red")
+legend("topright", legend = c("KM", "Cox-PG"), col = c("blue", "red"), lty = 1, lwd = 2)
+```
+
+## Test for linearity vs GAM effect, Stratified Baseline, mixed model
+```{r m1, warning=FALSE, eval=T, fig.width=8, fig.height=4}
+dta = Leuk
+m_age = mean(dta$age)
+dta$age = dta$age - m_age
+m_tpi = mean(dta$tpi)
+dta$tpi = dta$tpi - m_tpi
+dta$wbc = dta$wbc/50
+dta$wbc_strata = 1*(dta$wbc>=3)
+
+distr = as.factor(dta$district)
+distr = model.matrix(~ distr - 1)
+dta$strata = as.numeric(factor(dta$wbc_strata))
+
+cat("last time of death for normal group: ",max(dta$time[ dta$wbc_strata==1 & dta$cens==1 ]))
+
+cat("last time of death for leukopenia group: ",max(dta$time[ dta$wbc_strata==0 & dta$cens==1 ]))
+
+cat("number of death in leukopenia group after 704: ",sum(dta$cens[dta$time>704]))
+
+km_fit <- survfit(Surv(time, cens)~wbc_strata, 
+                           data = dta)
+plot(km_fit,col=1:2)
+
+if(!file.exists("Leuk_fit.rds")) {
+fit_draws = posterior_draw(formula = Surv(time, cens) ~ sex+age,
+                      data = dta,
+                      n_print = 10000,burn_in = 1000,
+                      Ospline_variables = c("tpi"),
+                      hazard_group = "wbc_strata",
+                      Z_matrix_list = list("cluster"=distr),
+                      n_mcmc =201000, verbose = T, 
+                      thin = 200, calibration = T)
+
+saveRDS(fit_draws, file = "Leuk_fit.rds")
+}
+fit_draws = readRDS("Leuk_fit.rds")
+
+acf(fit_draws$posterior_samples[,13])
+tmp1 = summary.coeffCombination(fit_draws,list("sex"=0.5,"age"=0,"tpi"=0) )
+tmp2 = summary.baselineLogCumulativeHazard(fit_draws)
+
+source("https://raw.githubusercontent.com/anddis/brms-weibullPH/main/weibullPH_funs.R")
+  HMC_model <- brm(formula = bf(time | cens(cens==0) ~ sex+age+s(tpi,k=5)+(1|district)),
+                   family =  weibullPH,
+                   stanvars = stanvars_weibullPH,
+                   data = dta, 
+                   silent = 2,
+                   refresh = 0,
+                   warmup = 1000,
+                   thin = 200,
+                   chains = 1,       # Number of MCMC chains
+                   iter = 201000      # Number of iterations per chain
+                   )
+
+summary.coeff(fit_draws)$coeff_summary
+summary(HMC_model)
+  
+summary_df <- as.data.frame(fixef(HMC_model))
+
+# Print with full precision
+print(summary_df, digits = 5)
+
+time_plot = fit_draws$rmb_splines$time_grid
+  # Compute the baseline cumulative hazard function
+  tmp = posterior_samples(HMC_model)
+  tmp = exp(rep.col(tmp$b_Intercept,length(time_plot))) * rep.row(time_plot,1000)^(rep.col(tmp$gamma,length(time_plot)))
+  tmp = jointband_maps(log(tmp))
+  tmp3 = conditional_smooths(HMC_model)
+  HMC_summary = list(
+    "coeff"=summary(HMC_model),
+    "basline"=tmp,
+    "time_grid"=time_plot,
+    "GAM"=tmp3[[1]],
+    "s_grid"=tmp3[[1]]$tpi
+  )
+
+t_grid = fit_draws$rmb_splines$time_grid
+lch_hat = log(exp( HMC_summary$coeff$fixed[1,1]) * t_grid^HMC_summary$coeff$spec_pars[1,1])
+
+o_sum = summary.osplines(fit_draws)  
+summary.osplines(fit_draws)$coeff_summary
+cat("p-value for significant nonlinear effect: ",(1-which.min((sort(o_sum$coeff_output$tpi$Z_tpi_7)-0)**2)/length(o_sum$coeff_output$tpi$Z_tpi_7))*2)
+
+par(mfrow = c(1, 3),mar = c(5, 3, 4, 1))
+#
+plot(fit_draws$rmb_splines$time_grid,
+     tmp2$spline_summary$`0`$mean,
+     type="l",  main="(a)",ylab="",xlab="Time (days)",cex.axis=1, 
+     cex.main=2, cex.lab=1.5, lwd=2, col="red")
+lines(fit_draws$rmb_splines$time_grid,
+     tmp2$spline_summary$`0`$joint_band$upper_CI,
+     lwd=1.1, lty=2, col="red")
+lines(fit_draws$rmb_splines$time_grid,
+     tmp2$spline_summary$`0`$joint_band$lower_CI,
+     lwd=1.1, lty=2, col="red")
+lines(fit_draws$rmb_splines$time_grid,
+     tmp2$spline_summary$`1`$mean,
+     col="blue", lwd=2)
+lines(fit_draws$rmb_splines$time_grid,
+     tmp2$spline_summary$`1`$joint_band$upper_CI,
+     col="blue", lty=2, lwd=1.1)
+lines(fit_draws$rmb_splines$time_grid,
+     tmp2$spline_summary$`1`$joint_band$lower_CI,
+     col="blue", lty=2, lwd=1.1)
+lines(t_grid,lch_hat,col="black", lwd=2)
+lines(t_grid,HMC_summary$basline$upper_CI,col="black", lwd=1.1, lty=2)
+lines(t_grid,HMC_summary$basline$lower_CI,col="black", lwd=1.1, lty=2)
+legend("bottomright", legend = c("Normal", "Leukopenia", "HMC-Weibull"), cex=1.25, col = c("blue", "red", "black"), lty = 1, lwd = 2)
+#
+plot.osplines(fit_draws, main="(b)",ylab="", xlab="Townsend score",cex.axis=1, cex.main=2, cex.lab=1.5, lwd=2)
+# lines(HMC_summary$s_grid,HMC_summary$GAM$estimate__)
+#
+plot(fit_draws$Osplines$tpi$domain,fit_draws$Osplines$tpi$Z_all[,7],type="l",lwd=0, main="(c)",ylab="", xlab="Townsend score",cex.axis=1, cex.main=2, cex.lab=1.5)
+for(c in 1:ncol(fit_draws$Osplines$tpi$Z_all)){
+  lines(fit_draws$Osplines$tpi$domain,-fit_draws$Osplines$tpi$Z_all[,c], lwd=1, col="grey")
+}
+lines(fit_draws$Osplines$tpi$domain,-fit_draws$Osplines$tpi$Z_all[,7], lwd=2, col="blue", lty=2)
+```
+
+
