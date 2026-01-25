@@ -1188,7 +1188,7 @@ summary.baselineLogCumulativeHazard <- function(fit){
       coeff_draw = fit$posterior_samples[Z_matrix_names]
       # spline draw
       tmp = t( as.matrix(fit$rmb_splines$u_all[,Z_matrix_names]) %*% t(coeff_draw) )
-      tmp2 = t( as.matrix(fit$rmb_splines$Du_all[paste0("D",Z_matrix_names)]) %*% t(coeff_draw) )
+      tmp2 = t( as.matrix(fit$rmb_splines$Du_all[,paste0("D",Z_matrix_names)]) %*% t(coeff_draw) )
       # add in intercept
       intercept = rep.col(fit$posterior_samples[,z], ncol(tmp) )
       tmp = tmp + intercept
@@ -1213,6 +1213,180 @@ summary.baselineLogCumulativeHazard <- function(fit){
     coeff_draw = fit$posterior_samples[Z_matrix_names]
     # spline draw
     tmp = t( as.matrix(fit$rmb_splines$u_all) %*% t(coeff_draw) )
+    tmp2 = t( as.matrix(fit$rmb_splines$Du_all) %*% t(coeff_draw) )
+    # add in intercept
+    intercept = rep.col(fit$posterior_samples[,"intercept"], ncol(tmp) )
+    # print(dim(intercept))
+    tmp = tmp + intercept
+    coeff_output[["base"]] = fit$posterior_samples[c(Z_matrix_names,"intercept")]
+    spline_output[["base"]] = tmp
+    deriv_spline_output[["base"]] = tmp2
+    # get jointbands and credible intervals
+    coeff_summary[["base"]] = list(
+      "mean" = apply(coeff_output[["base"]],2,mean),
+      "marginal_band" = apply(coeff_output[["base"]],2, function(x) quantile(x,c(0.025,0.975))) 
+    )
+    spline_summary[["base"]] = list( 
+      "joint_band" = jointband_maps( spline_output[["base"]] ),
+      "mean" = apply(spline_output[["base"]],2,mean),
+      "marginal_band" = apply(spline_output[["base"]],2, function(x) quantile(x,c(0.025,0.975))) 
+    )
+  }
+  return(
+    list(
+      coeff_output = coeff_output,
+      coeff_summary = coeff_summary,
+      spline_output = spline_output,
+      spline_summary = spline_summary,
+      deriv_spline_output = deriv_spline_output
+    )
+  )
+}
+summary.coeff <- function(fit){
+  # get coefficient estimates
+  coeff_output = list()
+  coeff_summary = list()
+  
+  J = ncol(fit$rmb_splines$u_obs)
+  a = max( length( fit$hazard_group_factors ), 1 ) # index adjustment
+  P = fit$P
+  # posterior draws
+  coeff_draw = fit$posterior_samples[(J+a+1):P]
+  coeff_summary = list(
+    "mean" = apply(coeff_draw,2,mean),
+    "marginal_band" = apply(coeff_draw,2, function(x) quantile(x,c(0.025,0.975))) 
+  )
+  
+  return(
+    list(
+      coeff_output = coeff_draw,
+      coeff_summary = coeff_summary
+    )
+  )
+}
+summary.coeffCombination <- function(fit, coeff_list){
+  # get coefficient estimates
+  spline_eff = rep(0,nrow(fit$posterior_samples))
+  out_new = summary.osplines(fit, include_intercept = F)
+  for(z in names(out_new$spline_output)){
+    Zdomain = fit$Osplines[[z]]$domain + fit$Ospline_means[[z]]
+    out_tmp = out_new$spline_output[[z]]
+    out_tmp = out_tmp[,which.min( abs(Zdomain-coeff_list[[z]]) )]
+    spline_eff = spline_eff + out_tmp
+  }
+  
+  
+  J = ncol(fit$rmb_splines$u_obs)
+  a = max( length( fit$hazard_group_factors ), 1 ) # index adjustment
+  P = fit$P
+  # posterior draws
+  coeff_draw = fit$posterior_samples[(J+a+1):P]
+  for(i in names(coeff_draw)){
+    if(i %in% names(coeff_list)){
+      if( !(i %in% names(out_new$spline_output)) ){
+        spline_eff = spline_eff + coeff_draw[,i]*coeff_list[[i]]
+      }
+    }
+  }
+  
+  return(
+    list(
+      eff_output = spline_eff
+    )
+  )
+}
+plot.baselineLogCumulativeHazard <- function(fit){
+  out = summary.baselineLogCumulativeHazard(fit)
+  ylim = c()
+  for( i in names(out$coeff_output) ){
+    jmap_out = out$spline_summary[[i]]$joint_band
+    ylim = c(ylim, range(c(jmap_out$upper_CI,jmap_out$lower_CI)) )
+  }
+  ylim = range(ylim)
+  
+  col=1
+  plot(fit$rmb_splines$time_grid, 
+       apply(out$spline_output[[1]],2,mean), 
+       col=col, ylim=ylim, type="l")
+  for( i in names(out$coeff_output) ){
+    jmap_out = out$spline_summary[[i]]$joint_band
+    lines(fit$rmb_splines$time_grid, 
+          apply(out$spline_output[[i]],2,mean), col=col)
+    lines(fit$rmb_splines$time_grid, 
+          jmap_out$upper_CI, col=col, lty=2)
+    lines(fit$rmb_splines$time_grid, 
+          jmap_out$lower_CI, col=col, lty=2)
+    col=col+1
+  }
+}
+plot.baselineSurvival <- function(fit, coeff_list = NULL){
+  out = summary.baselineLogCumulativeHazard(fit)
+  ylim = c()
+  jmap_list = list()
+  mean_list = list()
+  if(!is.null(coeff_list)){
+    out2 = summary.coeffCombination(fit, coeff_list)
+    for( i in names(out$coeff_output) ){
+      jmap_out = out$spline_output[[i]] + rep.col( out2$eff_output, ncol(out$spline_output[[i]]) )
+      mean_list[[i]] = apply(jmap_out,2,mean)
+      jmap_out = jointband_maps( jmap_out )
+      jmap_list[[i]] = jmap_out
+      ylim = c(ylim, range(c(jmap_out$upper_CI,jmap_out$lower_CI)) )
+    }
+    ylim = range(exp(-exp(ylim)))
+  } else {
+    for( i in names(out$coeff_output) ){
+      jmap_out = out$spline_output[[i]]
+      mean_list[[i]] = apply(jmap_out,2,mean)
+      jmap_out = jointband_maps( jmap_out )
+      jmap_list[[i]] = jmap_out
+      ylim = c(ylim, range(c(jmap_out$upper_CI,jmap_out$lower_CI)) )
+    }
+    ylim = range(exp(-exp(ylim)))
+  }
+  
+  col=1
+  plot(fit$rmb_splines$time_grid, 
+       exp(-exp(mean_list[[1]])), 
+       col=col, ylim=ylim, type="l")
+  for( i in names(mean_list) ){
+    jmap_out = jmap_list[[i]]
+    lines(fit$rmb_splines$time_grid, 
+          exp(-exp(mean_list[[i]])), col=col)
+    lines(fit$rmb_splines$time_grid, 
+          exp(-exp(jmap_out$upper_CI)), col=col, lty=2)
+    lines(fit$rmb_splines$time_grid, 
+          exp(-exp(jmap_out$lower_CI)), col=col, lty=2)
+    col=col+1
+  }
+}
+# plot.baselineHazard <- function(fit){
+#   out = summary.baselineLogCumulativeHazard(fit)
+#   out_new = list()
+#   jmap_new = list()
+#   ylim = c()
+#   for( i in names(out$coeff_output) ){
+#     out_new[[i]] = exp(out$spline_output[[i]]) * out$deriv_spline_output[[i]]
+#     jmap_new[[i]] = jointband_maps( out_new[[i]] )
+#     ylim = c(ylim, range(c(jmap_new[[i]]$upper_CI,jmap_new[[i]]$lower_CI)) )
+#   }
+#   ylim = range(ylim)
+# 
+#   col=1
+#   plot(fit$rmb_splines$time_grid,
+#        apply(out_new[[1]],2,mean),
+#        col=col, ylim=ylim, type="l")
+#   for( i in names(out$coeff_output) ){
+#     jmap_out = jmap_new[[i]]
+#     lines(fit$rmb_splines$time_grid,
+#           apply(out_new[[i]],2,mean), col=col)
+#     lines(fit$rmb_splines$time_grid,
+#           jmap_out$upper_CI, col=col, lty=2)
+#     lines(fit$rmb_splines$time_grid,
+#           jmap_out$lower_CI, col=col, lty=2)
+#     col=col+1
+#   }
+# }
     tmp2 = t( as.matrix(fit$rmb_splines$Du_all) %*% t(coeff_draw) )
     # add in intercept
     intercept = rep.col(fit$posterior_samples[,"intercept"], ncol(tmp) )
