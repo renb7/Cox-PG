@@ -935,7 +935,6 @@ weibull_posterior_draw <- function(formula, data,
     }
     
     # get bounds
-    # get bounds
     u_max = c()
     for(n_max in nj){
       v_tmp = rbeta(1,n_max,1)
