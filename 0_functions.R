@@ -936,6 +936,610 @@ weibull_posterior_draw <- function(formula, data,
     v_max = c()
     for(kk in 1:J){
       inv_t = 1/exp(M[,kk])
+      inv_t = inv_t[(M[,J+kk]==1)*(y==1)==1]
+      
+      tmp = runif(length(inv_t))
+      tmp = (tmp*inv_t)*eta[kk]
+      tmp = tmp/inv_t
+      v_max = c(v_max,max(tmp,na.rm = T))
+    }
+    u_plus = rep(1e4,J)
+    # restrict lower and upper bound near MLE
+    # v_max = rbind(v_max,eta0[1:J]*(1-0.5))
+    # v_max = apply(v_max,2,max)
+    # 
+    # u_plus = rbind(u_plus,eta0[1:J]*(1+0.5))
+    # u_plus = apply(u_plus,2,min)
+    
+    lower = as.matrix( c( v_max, rep(-Inf,(P+MM)-J) ) )
+    upper = as.matrix( c( u_plus, rep(Inf,(P+MM)-J) ) )
+    
+    # get Gaussian moments
+    omega = rpg(length(y), (y+epsilon)*w,
+                (as.matrix(M)%*%eta) + eta_ep )
+    omega = matrix(omega,nrow = length(y),ncol = 1)
+    # for( inc in 1:length(y) ){
+    #   omega[inc,] = rpg(1, (y[inc]+epsilon)*w[inc],
+    #                     (as.matrix(M)%*%eta)[inc] + eta_ep )
+    # }
+    kappa = w*(y-epsilon)/2
+    
+    Q = t(M) %*% diag(omega[,1]) %*% M + A
+    sigma_new = symmetric_inv(Q)
+    mu = t(M) %*% ( kappa-omega*eta_ep ) + A %*% b_mu
+    mu_new = sigma_new %*% mu
+    
+    # if(!matrixcalc::is.positive.definite(sigma_new)){
+    #   sigma_new = sigma_new + diag(rep(1e-8,nrow(sigma_new)))
+    # }
+    
+    # sample with bounds and Gaussian moments
+    out = condMVNorm::condMVN(mean = mu_new,
+                              sigma = sigma_new,
+                              dependent.ind = c(1:J),
+                              given.ind = c((J+1):(P+MM)),
+                              X.given = c(eta[(J+1):(P+MM)]))
+    mu_cond = t(t(out$condMean))
+    sigma_cond = out$condVar
+    sigma_cond = (t(sigma_cond) + sigma_cond)/2
+    
+    # eta_new = rtelliptical(n = 1, mu = mu_cond[,1],
+    #                        Sigma = sigma_cond,
+    #                        lower = c(lower[1:J,1]),
+    #                        upper = c(upper[1:J,1]),
+    #                        dist = "Normal", burn.in = slice_burn_in,
+    #                        thinning = 1)
+    
+    eta_new = zigzagHMC(
+      nSample = 1,
+      burnin = slice_burn_in,
+      mean = mu_cond[,1],
+      prec = solve(sigma_cond),
+      lowerBounds = c(lower[1:J,1]),
+      upperBounds = c(upper[1:J,1]),
+      init = eta[1:J],
+      stepsize = NULL,
+      nutsFlg = TRUE,
+      precondition = FALSE,
+      seed = NULL,
+      diagnosticMode = FALSE
+    )
+    
+    out = condMVNorm::condMVN(mean = mu_new,
+                              sigma = sigma_new,
+                              dependent.ind = c((J+1):(P+MM)),
+                              given.ind = c(1:J),
+                              X.given = c(eta_new))
+    mu_cond = t(t(out$condMean))
+    sigma_cond = out$condVar
+    
+    eta_cond = mu_cond + t(chol(sigma_cond)) %*% rnorm( ncol(sigma_cond) )
+    eta_cond = t(eta_cond)
+    
+    eta_new = cbind(eta_new,eta_cond)
+    
+    # eta_new = rtelliptical(n = 1, mu = mu_new[,1],
+    #                        Sigma = sigma_new, lower = c(lower[,1]), upper = c(upper[,1]),
+    #                        dist = "Normal", nu = NULL, expr = NULL, gFun = NULL,
+    #                        ginvFun = NULL, burn.in = slice_burn_in, thinning = 1)
+    
+    if(!calibration){ # debias towards Poisson process
+      log_acc_p = 0
+    } else {
+      log_acc_p = log_MH_prob(t(eta_new), eta, y, M, epsilon, w = w)
+    }
+    accept_p = c(accept_p, exp(log_acc_p))
+    acc = (log(runif(1))<log_acc_p)*1
+    accept_rate = c(accept_rate, acc)
+    
+    if(acc){
+      eta = eta_new[1,]
+    }
+    if(mixed_model){ # update precision
+      A_tmp = rep(1/1000000, P+MM)
+      MM_counter=0
+      for(i in 1:length(MM_vec)){
+        # print(MM_counter+P+(1:MM_vec[i]))
+        eta_mixed = eta[MM_counter+P+(1:MM_vec[i])]
+        tau_vec[i] = rgamma(1, 
+                            shape = 1e-3 + MM_vec[i] / 2, 
+                            rate = 1e-3 + sum(eta_mixed**2) / 2)
+        A_tmp[MM_counter+P+(1:MM_vec[i])] = tau_vec[i]
+        MM_counter = MM_counter + MM_vec[i]
+      }
+      A_tmp = diag(A_tmp)
+      A_tmp[1:P,1:P] = A[1:P,1:P]
+      A = A_tmp
+    }
+    if(iter%%thin==0 && iter > burn_in){
+      eta_df = rbind(eta_df, t((eta)))
+      tau_df = rbind(tau_df,tau_vec)
+    }
+  }
+  # set column names
+  colnames(eta_df) = colnames(M)
+  colnames(tau_df) = names(Z_matrix_list)
+  
+  end_time <- Sys.time()
+  time_taken <- end_time - start_time
+  if(verbose){
+    cat("time taken: ",time_taken,"\n")
+    cat("acceptance rate: ",mean(accept_rate),"\n")
+  }
+  return(
+    list(
+      posterior_samples = eta_df,
+      tau_samples = tau_df,
+      rmb_splines = rmb_out,
+      y = y,
+      M = M,
+      initial_eta = eta0,
+      formula = formula,
+      accept_p = accept_p,
+      accept_rate = accept_rate, 
+      Ospline_variables = Ospline_variables,
+      Osplines = Z_Ospline_list,
+      Ospline_means = Ospline_means,
+      hazard_group_factors = hazard_group_factors,
+      Z_matrix_list = Z_matrix_list,
+      P = P
+    )
+  )
+}
+summary.osplines <- function(fit, include_intercept=F){
+  # get Z_osplines coefficient estimates
+  coeff_output = list()
+  coeff_summary = list()
+  spline_output = list()
+  spline_summary = list()
+  for(z in fit$Ospline_variables){
+    O_out = fit$Osplines[[z]]
+    Z_matrix_names = c( z,paste0("Z_",z,"_", 1:ncol(fit$Z_matrix_list[[z]])) )
+    # posterior draws
+    coeff_draw = fit$posterior_samples[Z_matrix_names]
+    # spline draw
+    tmp = t( cbind( O_out$domain, O_out$Z_all) %*% t(coeff_draw) )
+    # add in intercept
+    if( is.null(fit$hazard_group_factors) ){
+      intercept = rep.col(fit$posterior_samples[,"intercept"], ncol(tmp) )
+      if(include_intercept){
+        tmp = tmp + intercept
+      }
+    } else {
+      intercept = t(t( rep(1/length(fit$hazard_group_factors),length(fit$hazard_group_factors)) ))
+      intercept = as.matrix(fit$posterior_samples[,fit$hazard_group_factors]) %*% intercept
+      intercept = rep.col(intercept, ncol(tmp) )
+      if(include_intercept){
+        tmp = tmp + intercept
+      }
+    }
+    coeff_output[[z]] = coeff_draw
+    spline_output[[z]] = tmp
+    # get jointbands and credible intervals
+    coeff_summary[[z]] = list(
+      "mean" = apply(coeff_output[[z]],2,mean),
+      "marginal_band" = apply(coeff_output[[z]],2, function(x) quantile(x,c(0.025,0.975))) 
+    )
+    spline_summary[[z]] = list( 
+      "joint_band" = jointband_maps( spline_output[[z]] ),
+      "mean" = apply(spline_output[[z]],2,mean),
+      "marginal_band" = apply(spline_output[[z]],2, function(x) quantile(x,c(0.025,0.975))) 
+      )
+  }
+  return(
+    list(
+      coeff_output = coeff_output,
+      coeff_summary = coeff_summary,
+      spline_output = spline_output,
+      spline_summary = spline_summary
+    )
+  )
+}
+plot.osplines <- function(fit, term=1,...){
+  out = summary.osplines(fit)
+  i = names(out$spline_output)[term]
+  jmap_out = out$spline_summary[[i]]$joint_band
+  ylim = range(c(jmap_out$upper_CI,jmap_out$lower_CI))
+  
+  plot(fit$Osplines[[i]]$domain+fit$Ospline_means[[i]], 
+       apply(out$spline_output[[i]],2,mean), ylim=ylim, type="l",
+       ...)
+  lines(fit$Osplines[[i]]$domain+fit$Ospline_means[[i]], 
+        jmap_out$upper_CI, col="1", lty=2)
+  lines(fit$Osplines[[i]]$domain+fit$Ospline_means[[i]], 
+        jmap_out$lower_CI, col=1, lty=2)
+}
+summary.ranef <- function(fit){
+  # get Z coefficient estimates
+  coeff_output = list()
+  coeff_summary = list()
+  for(z in names(fit$Z_matrix_list)){
+    if( !(z %in% fit$Ospline_variables) ){
+      Z_matrix_names = paste0("Z_", colnames(fit$Z_matrix_list[[z]]) )
+      coeff_output[[z]] = fit$posterior_samples[,Z_matrix_names]
+      # get credible intervals
+      coeff_summary[[z]] = list(
+        "mean" = apply(coeff_output[[z]],2,mean),
+        "marginal_band" = apply(coeff_output[[z]],2, function(x) quantile(x,c(0.025,0.975))) 
+      )
+    }
+  }
+  return(
+    list(
+      coeff_output = coeff_output,
+      coeff_summary = coeff_summary
+    )
+  )
+}
+summary.baselineLogCumulativeHazard <- function(fit){
+  # get monotonic coefficient estimates
+  coeff_output = list()
+  coeff_summary = list()
+  spline_output = list()
+  spline_summary = list()
+  deriv_spline_output = list()
+  if( !is.null(fit$hazard_group_factors) ){
+    for(z in fit$hazard_group_factors){
+      J = ncol(fit$rmb_splines$u_all)
+      Z_matrix_names = paste0("Z_alpha_", 1:J, "_", z)
+      Z_matrix_names = colnames(fit$rmb_splines$u_all)[colnames(fit$rmb_splines$u_all) %in% Z_matrix_names]
+      J = length(Z_matrix_names)
+      # posterior draws
+      coeff_draw = fit$posterior_samples[Z_matrix_names]
+      # spline draw
+      tmp = t( as.matrix(fit$rmb_splines$u_all[,Z_matrix_names]) %*% t(coeff_draw) )
+      tmp2 = t( as.matrix(fit$rmb_splines$Du_all[,paste0("D",Z_matrix_names)]) %*% t(coeff_draw) )
+      # add in intercept
+      intercept = rep.col(fit$posterior_samples[,z], ncol(tmp) )
+      tmp = tmp + intercept
+      coeff_output[[z]] = fit$posterior_samples[c(Z_matrix_names,z)]
+      spline_output[[z]] = tmp
+      deriv_spline_output[[z]] = tmp2
+      # get jointbands and credible intervals
+      coeff_summary[[z]] = list(
+        "mean" = apply(coeff_output[[z]],2,mean),
+        "marginal_band" = apply(coeff_output[[z]],2, function(x) quantile(x,c(0.025,0.975))) 
+      )
+      spline_summary[[z]] = list( 
+        "joint_band" = jointband_maps( spline_output[[z]] ),
+        "mean" = apply(spline_output[[z]],2,mean),
+        "marginal_band" = apply(spline_output[[z]],2, function(x) quantile(x,c(0.025,0.975))) 
+      )
+    }
+  } else {
+    J = ncol(fit$rmb_splines$u_all)
+    Z_matrix_names = paste0("Z_alpha_", 1:J)
+    # posterior draws
+    coeff_draw = fit$posterior_samples[Z_matrix_names]
+    # spline draw
+    tmp = t( as.matrix(fit$rmb_splines$u_all) %*% t(coeff_draw) )
+    tmp2 = t( as.matrix(fit$rmb_splines$Du_all) %*% t(coeff_draw) )
+    # add in intercept
+    intercept = rep.col(fit$posterior_samples[,"intercept"], ncol(tmp) )
+    # print(dim(intercept))
+    tmp = tmp + intercept
+    coeff_output[["base"]] = fit$posterior_samples[c(Z_matrix_names,"intercept")]
+    spline_output[["base"]] = tmp
+    deriv_spline_output[["base"]] = tmp2
+    # get jointbands and credible intervals
+    coeff_summary[["base"]] = list(
+      "mean" = apply(coeff_output[["base"]],2,mean),
+      "marginal_band" = apply(coeff_output[["base"]],2, function(x) quantile(x,c(0.025,0.975))) 
+    )
+    spline_summary[["base"]] = list( 
+      "joint_band" = jointband_maps( spline_output[["base"]] ),
+      "mean" = apply(spline_output[["base"]],2,mean),
+      "marginal_band" = apply(spline_output[["base"]],2, function(x) quantile(x,c(0.025,0.975))) 
+    )
+  }
+  return(
+    list(
+      coeff_output = coeff_output,
+      coeff_summary = coeff_summary,
+      spline_output = spline_output,
+      spline_summary = spline_summary,
+      deriv_spline_output = deriv_spline_output
+    )
+  )
+}
+summary.coeff <- function(fit){
+  # get coefficient estimates
+  coeff_output = list()
+  coeff_summary = list()
+  
+  J = ncol(fit$rmb_splines$u_obs)
+  a = max( length( fit$hazard_group_factors ), 1 ) # index adjustment
+  P = fit$P
+  # posterior draws
+  coeff_draw = fit$posterior_samples[(J+a+1):P]
+  coeff_summary = list(
+    "mean" = apply(coeff_draw,2,mean),
+    "marginal_band" = apply(coeff_draw,2, function(x) quantile(x,c(0.025,0.975))) 
+  )
+  
+  return(
+    list(
+      coeff_output = coeff_draw,
+      coeff_summary = coeff_summary
+    )
+  )
+}
+summary.coeffCombination <- function(fit, coeff_list){
+  # get coefficient estimates
+  spline_eff = rep(0,nrow(fit$posterior_samples))
+  out_new = summary.osplines(fit, include_intercept = F)
+  for(z in names(out_new$spline_output)){
+    Zdomain = fit$Osplines[[z]]$domain + fit$Ospline_means[[z]]
+    out_tmp = out_new$spline_output[[z]]
+    out_tmp = out_tmp[,which.min( abs(Zdomain-coeff_list[[z]]) )]
+    spline_eff = spline_eff + out_tmp
+  }
+  
+  
+  J = ncol(fit$rmb_splines$u_obs)
+  a = max( length( fit$hazard_group_factors ), 1 ) # index adjustment
+  P = fit$P
+  # posterior draws
+  coeff_draw = fit$posterior_samples[(J+a+1):P]
+  for(i in names(coeff_draw)){
+    if(i %in% names(coeff_list)){
+      if( !(i %in% names(out_new$spline_output)) ){
+        spline_eff = spline_eff + coeff_draw[,i]*coeff_list[[i]]
+      }
+    }
+  }
+  
+  return(
+    list(
+      eff_output = spline_eff
+    )
+  )
+}
+plot.baselineLogCumulativeHazard <- function(fit){
+  out = summary.baselineLogCumulativeHazard(fit)
+  ylim = c()
+  for( i in names(out$coeff_output) ){
+    jmap_out = out$spline_summary[[i]]$joint_band
+    ylim = c(ylim, range(c(jmap_out$upper_CI,jmap_out$lower_CI)) )
+  }
+  ylim = range(ylim)
+  
+  col=1
+  plot(fit$rmb_splines$time_grid, 
+       apply(out$spline_output[[1]],2,mean), 
+       col=col, ylim=ylim, type="l")
+  for( i in names(out$coeff_output) ){
+    jmap_out = out$spline_summary[[i]]$joint_band
+    lines(fit$rmb_splines$time_grid, 
+          apply(out$spline_output[[i]],2,mean), col=col)
+    lines(fit$rmb_splines$time_grid, 
+          jmap_out$upper_CI, col=col, lty=2)
+    lines(fit$rmb_splines$time_grid, 
+          jmap_out$lower_CI, col=col, lty=2)
+    col=col+1
+  }
+}
+plot.baselineSurvival <- function(fit, coeff_list = NULL){
+  out = summary.baselineLogCumulativeHazard(fit)
+  ylim = c()
+  jmap_list = list()
+  mean_list = list()
+  if(!is.null(coeff_list)){
+    out2 = summary.coeffCombination(fit, coeff_list)
+    for( i in names(out$coeff_output) ){
+      jmap_out = out$spline_output[[i]] + rep.col( out2$eff_output, ncol(out$spline_output[[i]]) )
+      mean_list[[i]] = apply(jmap_out,2,mean)
+      jmap_out = jointband_maps( jmap_out )
+      jmap_list[[i]] = jmap_out
+      ylim = c(ylim, range(c(jmap_out$upper_CI,jmap_out$lower_CI)) )
+    }
+    ylim = range(exp(-exp(ylim)))
+  } else {
+    for( i in names(out$coeff_output) ){
+      jmap_out = out$spline_output[[i]]
+      mean_list[[i]] = apply(jmap_out,2,mean)
+      jmap_out = jointband_maps( jmap_out )
+      jmap_list[[i]] = jmap_out
+      ylim = c(ylim, range(c(jmap_out$upper_CI,jmap_out$lower_CI)) )
+    }
+    ylim = range(exp(-exp(ylim)))
+  }
+  
+  col=1
+  plot(fit$rmb_splines$time_grid, 
+       exp(-exp(mean_list[[1]])), 
+       col=col, ylim=ylim, type="l")
+  for( i in names(mean_list) ){
+    jmap_out = jmap_list[[i]]
+    lines(fit$rmb_splines$time_grid, 
+          exp(-exp(mean_list[[i]])), col=col)
+    lines(fit$rmb_splines$time_grid, 
+          exp(-exp(jmap_out$upper_CI)), col=col, lty=2)
+    lines(fit$rmb_splines$time_grid, 
+          exp(-exp(jmap_out$lower_CI)), col=col, lty=2)
+    col=col+1
+  }
+}
+# plot.baselineHazard <- function(fit){
+#   out = summary.baselineLogCumulativeHazard(fit)
+#   out_new = list()
+#   jmap_new = list()
+#   ylim = c()
+#   for( i in names(out$coeff_output) ){
+#     out_new[[i]] = exp(out$spline_output[[i]]) * out$deriv_spline_output[[i]]
+#     jmap_new[[i]] = jointband_maps( out_new[[i]] )
+#     ylim = c(ylim, range(c(jmap_new[[i]]$upper_CI,jmap_new[[i]]$lower_CI)) )
+#   }
+#   ylim = range(ylim)
+# 
+#   col=1
+#   plot(fit$rmb_splines$time_grid,
+#        apply(out_new[[1]],2,mean),
+#        col=col, ylim=ylim, type="l")
+#   for( i in names(out$coeff_output) ){
+#     jmap_out = jmap_new[[i]]
+#     lines(fit$rmb_splines$time_grid,
+#           apply(out_new[[i]],2,mean), col=col)
+#     lines(fit$rmb_splines$time_grid,
+#           jmap_out$upper_CI, col=col, lty=2)
+#     lines(fit$rmb_splines$time_grid,
+#           jmap_out$lower_CI, col=col, lty=2)
+#     col=col+1
+#   }
+# }
+      Z_matrix_list = list()
+      mixed_model = T
+    }
+    Z_Ospline_list = list()
+    for(z in 1:length(Ospline_variables)){
+      O_out = Osplines(data[,Ospline_variables[z]])
+      Z_matrix_list[[ Ospline_variables[z] ]] = O_out$Z_obs
+      Z_Ospline_list[[ Ospline_variables[z] ]] = O_out
+    }
+  }
+  # Get stratified hazard monotonic spline matrices
+  hazard_group_factors = NULL
+  if(!is.null(hazard_group)){
+    data[,hazard_group] = as.factor(data[,hazard_group])
+    intercept_ = data[,hazard_group]
+    Z_g <- model.matrix(~ intercept_ - 1)
+    colnames(Z_g) = levels(data[,hazard_group])
+    hazard_group_factors = colnames(Z_g)
+  } else {
+    Z_g = NULL
+  }
+  # Rename Z random effect matrices columns and get dimensions
+  MM_vec = c()
+  Z_combined = c()
+  col_names = c()
+  if(mixed_model){
+    for(z in 1:length(Z_matrix_list)){
+      MM_vec = c( MM_vec, ncol(Z_matrix_list[[z]]) )
+      Z_combined = cbind(Z_combined,Z_matrix_list[[z]])
+      if( names(Z_matrix_list)[z] %in% Ospline_variables){
+        col_names = c( col_names,paste0("Z_",names(Z_matrix_list)[z],"_", 1:ncol(Z_matrix_list[[z]]) ) )
+      } else {
+        col_names = c( col_names,paste0("Z_",colnames(Z_matrix_list[[z]])) ) 
+      }
+    }
+    Z_combined = data.frame(Z_combined)
+    colnames(Z_combined) = col_names
+    MM = sum(MM_vec)
+  } else {
+    MM = 0
+  }
+  # Get design matrix
+  M = M_matrix(formula, data, partitions = partitions, Z_g=Z_g)
+  P = ncol(M) # get non random effect dimension
+  M = cbind(M,Z_combined) # concat random effects
+  
+  if(!is.null(hazard_group_factors)){
+    for(h in hazard_group_factors){
+      for(j in 1:partitions){
+        M = M[,colnames(M)!=paste0("Z_alpha_",j,"_",h)]
+      }
+    }
+  }
+  if(is.null(hazard_group_factors)){
+    for(j in 1:partitions){
+      M = M[,colnames(M)!=paste0("Z_alpha_",j)]
+    }
+  }
+  
+  if(!is.null(hazard_group)){
+    data[,hazard_group] = as.factor(data[,hazard_group])
+    intercept_ = data[,hazard_group]
+    Z_wg <- model.matrix(~ intercept_ - 1)
+    Z_wg = Z_wg * rep.col(log(data$time), ncol(Z_wg))
+    
+    M = cbind(Z_wg,M)
+    
+    colnames(M)[1:length(levels(data[,hazard_group]))] = paste0("Z_alpha_1_",levels(data[,hazard_group]))
+  }
+  if(is.null(hazard_group)){
+    Z_wg = log(data$time)
+    M = cbind(Z_wg,M)
+    colnames(M)[1] = "Z_alpha_1"
+    colnames(M)[2] = "intercept"
+  }
+  
+  if(is.null(prior_sigma)){
+    A = diag(rep(1/1000000, P+MM))
+  }else{
+    A = diag(rep(1/1000000, P+MM))
+    A[1:P,1:P] = symmetric_inv(prior_sigma)
+  }
+  
+  if(is.null(prior_mean)){
+    b_mu = rep(0,P+MM)
+  }else{
+    b_mu = rep(0,P+MM)
+    b_mu[1+P] = prior_mean
+  }
+  # get death vector
+  mf <- model.frame(formula=formula, data=data)
+  surv.responses <- model.response(mf)
+  y <- surv.responses[, "status"]*1
+  # assign weights
+  if(is.null(weights)){
+    w=rep( 1, nrow(M) )
+  } else {
+    w=weights
+  }
+  # get monotonic splines
+  rmb_out = rmb_splines(surv.responses = surv.responses, partitions = partitions, Z_g=Z_g)
+  J = ncol(rmb_out$Du_obs)
+  rmb_out$events = rmb_out$Du_obs
+  #
+  tmp = colnames(rmb_out$u_all)
+  rmb_out$u_all = rep.col(log(rmb_out$time_grid), max(1,ncol(Z_wg)))
+  colnames(rmb_out$u_all) = tmp
+  #
+  tmp = colnames(rmb_out$Du_all)
+  rmb_out$Du_all = 1/exp(rmb_out$u_all)
+  colnames(rmb_out$Du_all) = tmp
+  #
+  tmp = colnames(rmb_out$u_obs)
+  rmb_out$u_obs = rep.col(log(rmb_out$time_obs), max(1,ncol(Z_wg)))
+  colnames(rmb_out$u_obs) = tmp
+  #
+  tmp = colnames(rmb_out$Du_obs)
+  rmb_out$Du_obs = 1/exp(rmb_out$u_obs)
+  colnames(rmb_out$Du_obs) = tmp
+  
+  # get constrained MLE estimate
+  eta0 = initial_eta(y, rmb_out$Du_obs, M, w=w)
+  if(!is.null(eta_initial)){
+    if(length(eta_initial)==1 && eta_initial=="zero"){
+      eta0 = eta0*0
+    } else {
+      eta0 = matrix(eta_initial,ncol = 1)
+    }
+  }
+  eta = eta0
+  eta_new = t(eta)
+  
+  # set random effect precision tau
+  tau_vec = c(rep(1/1000000, length(MM_vec)))
+  tau_df = data.frame()
+  M = as.matrix(M)
+  eta_df = data.frame()
+  accept_p = c()
+  accept_rate = c()
+  mcmc_num = c()
+  for(iter in 1:(n_mcmc+burn_in)){
+    
+    if(iter%%n_print==0 && verbose){
+      cat(iter,"\n")
+      end_time <- Sys.time()
+      time_taken <- end_time - start_time
+      cat("time elapsed: ",time_taken,"\n")
+    }
+    
+    # get bounds
+    v_max = c()
+    for(kk in 1:J){
+      inv_t = 1/exp(M[,kk])
       inv_t = inv_t[(M[,J+kk]==1)*(y==1)]
       
       tmp = runif(length(inv_t))
