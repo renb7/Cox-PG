@@ -63,7 +63,7 @@ lines(km_fit$rmb_splines$time_grid,exp(-exp(lch$spline_summary$base$joint_band$u
 legend("topright", legend = c("KM", "Cox-PG"), col = c("blue", "red"), lty = 1, lwd = 2)
 ```
 
-## Lung dataset example, Weibull model
+## Lung dataset example: Weibull model
 ```{r e1.1, warning=FALSE, eval=T}
 dta = lung[,c("time","status")]
 dta = dta[complete.cases(dta),]
@@ -84,14 +84,14 @@ km_fit2 = readRDS("km_fit2.rds")
 ```{r p1.1, warning=FALSE, eval=T}
 par(mfrow = c(2, 2),mar = c(3, 3, 4, 1))
 #
-plot(km_fit2$rmb_splines$time_grid,km_fit$rmb_splines$Du_all[,1],type="l",lwd=0, main="(a)",ylab="", xlab="",cex.axis=1, cex.main=1.5)
-for(c in 1:ncol(km_fit$rmb_splines$Du_all)){
-  lines(km_fit$rmb_splines$time_grid,km_fit$rmb_splines$Du_all[,c],col=c,lty=c, lwd=2)
+plot(km_fit2$rmb_splines$time_grid,km_fit2$rmb_splines$Du_all[,1],type="l",lwd=0, main="(a)",ylab="", xlab="",cex.axis=1, cex.main=1.5)
+for(c in 1:ncol(km_fit2$rmb_splines$Du_all)){
+  lines(km_fit2$rmb_splines$time_grid,km_fit2$rmb_splines$Du_all[,c],col=c,lty=c, lwd=2)
 }
 #
-plot(km_fit2$rmb_splines$time_grid,km_fit$rmb_splines$u_all[,1],type="l",lwd=0, main="(b)",ylab="", xlab="",cex.axis=1, cex.main=1.5, ylim=max(km_fit$rmb_splines$time_grid)*c(min(km_fit$rmb_splines$u_all),max(km_fit$rmb_splines$u_all)))
-for(c in 1:ncol(km_fit$rmb_splines$Du_all)){
-  lines(km_fit$rmb_splines$time_grid,max(km_fit$rmb_splines$time_grid)*km_fit$rmb_splines$u_all[,c],col=c,lty=c, lwd=2)
+plot(km_fit2$rmb_splines$time_grid,km_fit2$rmb_splines$u_all[,1],type="l",lwd=0, main="(b)",ylab="", xlab="",cex.axis=1, cex.main=1.5, ylim=max(km_fit2$rmb_splines$time_grid)*c(min(km_fit2$rmb_splines$u_all),max(km_fit2$rmb_splines$u_all)))
+for(c in 1:ncol(km_fit2$rmb_splines$Du_all)){
+  lines(km_fit2$rmb_splines$time_grid,max(km_fit2$rmb_splines$time_grid)*km_fit2$rmb_splines$u_all[,c],col=c,lty=c, lwd=2)
 }
 #
 lch = summary.baselineLogCumulativeHazard(km_fit2)
@@ -111,7 +111,7 @@ lines(km_fit2$rmb_splines$time_grid,exp(-exp(lch$spline_summary$base$joint_band$
 legend("topright", legend = c("KM", "Cox-PG"), col = c("blue", "red"), lty = 1, lwd = 2)
 ```
 
-## Lung dataset example, Weibull model and sex strata
+## Lung dataset example: Weibull model and sex strata
 ```{r e1.2, warning=FALSE, eval=T}
 dta = lung[,c("time","status","sex")]
 dta$sex = as.factor(dta$sex)
@@ -133,14 +133,14 @@ km_fit3 = readRDS("km_fit3.rds")
 ```{r p1.2, warning=FALSE, eval=T}
 par(mfrow = c(2, 2),mar = c(3, 3, 4, 1))
 #
-plot(km_fit2$rmb_splines$time_grid,km_fit$rmb_splines$Du_all[,1],type="l",lwd=0, main="(a)",ylab="", xlab="",cex.axis=1, cex.main=1.5)
-for(c in 1:ncol(km_fit$rmb_splines$Du_all)){
-  lines(km_fit$rmb_splines$time_grid,km_fit$rmb_splines$Du_all[,c],col=c,lty=c, lwd=2)
+plot(km_fit3$rmb_splines$time_grid,km_fit3$rmb_splines$Du_all[,1],type="l",lwd=0, main="(a)",ylab="", xlab="",cex.axis=1, cex.main=1.5)
+for(c in 1:ncol(km_fit3$rmb_splines$Du_all)){
+  lines(km_fit3$rmb_splines$time_grid,km_fit3$rmb_splines$Du_all[,c],col=c,lty=c, lwd=2)
 }
 #
-plot(km_fit3$rmb_splines$time_grid,km_fit$rmb_splines$u_all[,1],type="l",lwd=0, main="(b)",ylab="", xlab="",cex.axis=1, cex.main=1.5, ylim=max(km_fit$rmb_splines$time_grid)*c(min(km_fit$rmb_splines$u_all),max(km_fit$rmb_splines$u_all)))
-for(c in 1:ncol(km_fit$rmb_splines$Du_all)){
-  lines(km_fit$rmb_splines$time_grid,max(km_fit$rmb_splines$time_grid)*km_fit$rmb_splines$u_all[,c],col=c,lty=c, lwd=2)
+plot(km_fit3$rmb_splines$time_grid,km_fit3$rmb_splines$u_all[,1],type="l",lwd=0, main="(b)",ylab="", xlab="",cex.axis=1, cex.main=1.5, ylim=c(min(km_fit3$rmb_splines$u_all),max(km_fit3$rmb_splines$u_all)))
+for(c in 1:ncol(km_fit3$rmb_splines$Du_all)){
+  lines(km_fit3$rmb_splines$time_grid,km_fit3$rmb_splines$u_all[,c],col=c,lty=c, lwd=2)
 }
 #
 lch = summary.baselineLogCumulativeHazard(km_fit3)
@@ -148,20 +148,147 @@ plot(km_fit3$rmb_splines$time_grid,lch$spline_summary$`1`$mean,type="l", main="(
      ylim=c(min(lch$spline_summary$`1`$joint_band$lower_CI),
             max(lch$spline_summary$`1`$joint_band$upper_CI))
      )
-lines(km_fit2$rmb_splines$time_grid,lch$spline_summary$`1`$joint_band$lower_CI,lwd=2,lty=2,col="red")
-lines(km_fit2$rmb_splines$time_grid,lch$spline_summary$`1`$joint_band$upper_CI,lwd=2,lty=2,col="red")
+lines(km_fit3$rmb_splines$time_grid,lch$spline_summary$`1`$joint_band$lower_CI,lwd=2,lty=2,col="red")
+lines(km_fit3$rmb_splines$time_grid,lch$spline_summary$`1`$joint_band$upper_CI,lwd=2,lty=2,col="red")
 lines(km_fit3$rmb_splines$time_grid,lch$spline_summary$`2`$mean,lwd=2,lty=2,col="orange")
-lines(km_fit2$rmb_splines$time_grid,lch$spline_summary$`2`$joint_band$lower_CI,lwd=2,lty=2,col="orange")
-lines(km_fit2$rmb_splines$time_grid,lch$spline_summary$`2`$joint_band$upper_CI,lwd=2,lty=2,col="orange")
+lines(km_fit3$rmb_splines$time_grid,lch$spline_summary$`2`$joint_band$lower_CI,lwd=2,lty=2,col="orange")
+lines(km_fit3$rmb_splines$time_grid,lch$spline_summary$`2`$joint_band$upper_CI,lwd=2,lty=2,col="orange")
 #
 plot(km_fit0, lty = 1, col = c("blue","green"), lwd = 3.5, 
      conf.int = TRUE, conf.int.style = "bands",
      main="(d)",ylab="", xlab="",cex.axis=1, cex.main=1.5 )
-lines(km_fit2$rmb_splines$time_grid,exp(-exp(lch$spline_summary$`1`$mean)),lwd=2,lty=1,col="red")
-lines(km_fit2$rmb_splines$time_grid,exp(-exp(lch$spline_summary$`1`$joint_band$lower_CI)),lwd=2,lty=2,col="red")
-lines(km_fit2$rmb_splines$time_grid,exp(-exp(lch$spline_summary$`1`$joint_band$upper_CI)),lwd=2,lty=2,col="red")
-lines(km_fit2$rmb_splines$time_grid,exp(-exp(lch$spline_summary$`2`$mean)),lwd=2,lty=1,col="orange")
-lines(km_fit2$rmb_splines$time_grid,exp(-exp(lch$spline_summary$`2`$joint_band$lower_CI)),lwd=2,lty=2,col="orange")
-lines(km_fit2$rmb_splines$time_grid,exp(-exp(lch$spline_summary$`2`$joint_band$upper_CI)),lwd=2,lty=2,col="orange")
+lines(km_fit3$rmb_splines$time_grid,exp(-exp(lch$spline_summary$`1`$mean)),lwd=2,lty=1,col="red")
+lines(km_fit3$rmb_splines$time_grid,exp(-exp(lch$spline_summary$`1`$joint_band$lower_CI)),lwd=2,lty=2,col="red")
+lines(km_fit3$rmb_splines$time_grid,exp(-exp(lch$spline_summary$`1`$joint_band$upper_CI)),lwd=2,lty=2,col="red")
+lines(km_fit3$rmb_splines$time_grid,exp(-exp(lch$spline_summary$`2`$mean)),lwd=2,lty=1,col="orange")
+lines(km_fit3$rmb_splines$time_grid,exp(-exp(lch$spline_summary$`2`$joint_band$lower_CI)),lwd=2,lty=2,col="orange")
+lines(km_fit3$rmb_splines$time_grid,exp(-exp(lch$spline_summary$`2`$joint_band$upper_CI)),lwd=2,lty=2,col="orange")
 legend("topright", legend = c("KM","KM","Cox-PG","Cox-PG"), col = c("blue","green", "red","orange"), lty = 1, lwd = 2)
 ```
+
+## Lung dataset example: Weibull model, sex and age PH
+```{r e1.3, warning=FALSE, eval=T}
+dta = lung[,c("time","status","sex","age")]
+dta$sex = dta$sex - 1
+dta = dta[complete.cases(dta),]
+
+ph_fit0 = coxph(Surv(time, status) ~ sex+age, data = dta)
+if(!file.exists("km_fit4.rds")) {
+km_fit4 = weibull_posterior_draw(formula = Surv(time, status) ~ 1+sex+age,
+                      data = dta,
+                      n_print = 1000,burn_in = 1000,
+                      n_mcmc = 5000, verbose = T, 
+                      thin = 1, calibration = T)
+saveRDS(km_fit4, file = "km_fit4.rds")
+}
+km_fit4 = readRDS("km_fit4.rds")
+
+summary.coeff(km_fit4)$coeff_summary
+summary(ph_fit0)
+```
+
+### Posterior predictive draws of censored data and refit models
+```{r e1.4, warning=FALSE, eval=T}
+censored = km_fit4$M[km_fit4$y==0,]
+censored_time = km_fit4$rmb_splines$time_obs[km_fit4$y==0]
+
+out = data.frame()
+for(r in 1:nrow(censored)){
+  tmp = censored[r,c("sex","age")]
+  
+  tmp1 = summary.coeffCombination(km_fit4,list("sex"=tmp[1],
+                                               "age"=tmp[2]) )
+  tmp2 = summary.baselineLogCumulativeHazard(km_fit4)
+  
+  s1_draws = tmp2$spline_output$base + rep.col(tmp1$eff_output,1000)
+  s_p = exp(-exp(s1_draws))
+  
+  pp_obs = event_time_posterior_predictive_draws(survival_probabilities = s_p, time_grid = km_fit4$rmb_splines$time_grid, censor_time = censored_time[r],nobs = 10)
+  
+  new_row = cbind(pp_obs,rep.row(c(tmp,1/length(pp_obs)),length(pp_obs)))
+  out = rbind(out,new_row)
+}
+
+dta = lung[,c("time","status","sex","age")]
+dta$status = dta$status-1
+dta$sex = dta$sex - 1
+dta = dta[complete.cases(dta),]
+dta = dta[dta$status==1,]
+dta$w = 1
+
+colnames(out) = c("time","sex","age","w")
+out$status=1
+out_new = out[c("time","status","sex","age","w")]
+
+dta = rbind(dta,out_new)
+
+ph_fit0 = coxph(Surv(time, status) ~ sex+age, data = dta,weights = w)
+if(!file.exists("km_fit5.rds")) {
+km_fit5 = weibull_posterior_draw(formula = Surv(time, status) ~ 1+sex+age,
+                      data = dta,
+                      weights = dta$w,
+                      n_print = 1000,burn_in = 1000,
+                      n_mcmc = 5000, verbose = T, 
+                      thin = 1, calibration = T)
+saveRDS(km_fit5, file = "km_fit5.rds")
+}
+km_fit5 = readRDS("km_fit5.rds")
+```
+
+```{r p1.3, warning=FALSE, eval=T}
+tmp1 = summary.coeffCombination(km_fit4,list("sex"=0.5, "age"=62.5) )
+tmp2 = summary.baselineLogCumulativeHazard(km_fit4)
+s1_draws = tmp2$spline_output$base + rep.col(tmp1$eff_output,1000)
+
+jmap = jointband_maps(s1_draws)
+jmap$mean = apply(s1_draws,2,mean)
+#
+par(mfrow = c(2, 2),mar = c(3, 3, 4, 1))
+plot(km_fit4$rmb_splines$time_grid,jmap$mean,type="l", main="(a)",ylab="", xlab="",cex.axis=1, cex.main=1.5, lwd=2, col="red",
+     ylim=c(min(jmap$lower_CI),
+            max(jmap$upper_CI)),
+     xlim=c(0,1000)
+     )
+lines(km_fit4$rmb_splines$time_grid,jmap$lower_CI,lwd=2,lty=2,col="red")
+lines(km_fit4$rmb_splines$time_grid,jmap$upper_CI,lwd=2,lty=2,col="red")
+#
+plot(km_fit4$rmb_splines$time_grid,exp(-exp(jmap$mean)),type="l", main="(b)",ylab="", xlab="",cex.axis=1, cex.main=1.5, lwd=2, col="red",
+     ylim=sort(exp(-exp(c(min(jmap$lower_CI),
+            max(jmap$upper_CI))))),
+     xlim=c(0,1000)
+     )
+lines(km_fit4$rmb_splines$time_grid,exp(-exp(jmap$lower_CI)),lwd=2,lty=2,col="red")
+lines(km_fit4$rmb_splines$time_grid,exp(-exp(jmap$upper_CI)),lwd=2,lty=2,col="red")
+###
+
+tmp1 = summary.coeffCombination(km_fit5,list("sex"=0.5, "age"=62.5) )
+tmp2 = summary.baselineLogCumulativeHazard(km_fit5)
+s1_draws = tmp2$spline_output$base + rep.col(tmp1$eff_output,1000)
+
+jmap2 = jointband_maps(s1_draws)
+jmap2$mean = apply(s1_draws,2,mean)
+
+plot(km_fit4$rmb_splines$time_grid,jmap$mean,type="l", main="(c)",ylab="", xlab="",cex.axis=1, cex.main=1.5, lwd=2, col="red",
+     ylim=c(min(jmap$lower_CI),
+            max(jmap$upper_CI)),
+     xlim=c(0,1000)
+     )
+lines(km_fit4$rmb_splines$time_grid,jmap$lower_CI,lwd=2,lty=2,col="red")
+lines(km_fit4$rmb_splines$time_grid,jmap$upper_CI,lwd=2,lty=2,col="red")
+lines(km_fit5$rmb_splines$time_grid,jmap2$mean,lwd=2,lty=1,col="blue")
+lines(km_fit5$rmb_splines$time_grid,jmap2$lower_CI,lwd=2,lty=2,col="blue")
+lines(km_fit5$rmb_splines$time_grid,jmap2$upper_CI,lwd=2,lty=2,col="blue")
+#
+plot(km_fit4$rmb_splines$time_grid,exp(-exp(jmap$mean)),type="l", main="(d)",ylab="", xlab="",cex.axis=1, cex.main=1.5, lwd=2, col="red",
+     ylim=sort(exp(-exp(c(min(jmap$lower_CI),
+            max(jmap$upper_CI))))),
+     xlim=c(0,1000)
+     )
+lines(km_fit4$rmb_splines$time_grid,exp(-exp(jmap$lower_CI)),lwd=2,lty=2,col="red")
+lines(km_fit4$rmb_splines$time_grid,exp(-exp(jmap$upper_CI)),lwd=2,lty=2,col="red")
+lines(km_fit5$rmb_splines$time_grid,exp(-exp(jmap2$mean)),lwd=2,lty=1,col="blue")
+lines(km_fit5$rmb_splines$time_grid,exp(-exp(jmap2$lower_CI)),lwd=2,lty=2,col="blue")
+lines(km_fit5$rmb_splines$time_grid,exp(-exp(jmap2$upper_CI)),lwd=2,lty=2,col="blue")
+legend("topright", legend = c("Cox-PG", "PPP Imputed"), col = c("red", "blue"), lty = 1, lwd = 2)
+```
+
